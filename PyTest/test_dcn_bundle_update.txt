@@ -1,0 +1,147 @@
+# Suite: DCN Bundles
+# Author: Stephanie Salazar
+# Test: DCN Bundles are updated monthly
+# Summary: This test uses BeautifulSoup to parse the html of the DCN webpages to check
+# whether the bundles have been updated monthly. The disciplines are read from
+# a JSON file that are then appended to the DCN web URL to check every discipline.
+# The results are output to a text file disciplines_results.txt which includes
+# the type and amount of errors. This test is planned to run every day and check that
+# the page is updated by the update day of each month.
+# Takes approximately half an hour to run
+import datetime
+import json
+import pytest
+import urllib.request
+from bs4 import BeautifulSoup
+from datetime import datetime
+
+UPDATE_DAY = 28  # bundles should be updated after this day of the month
+NEW_MONTH = 0
+OLD_MONTH = 1
+
+pop_inst_not_updated = []
+pop_author_not_updated = []
+pop_article_not_updated = []
+no_pop_inst = []
+no_pop_author = []
+no_pop_article = []
+
+class TestDiscipline():
+    def test_open_json(self):
+        count = 0
+        dc_network_url = "http://network.bepress.com/"
+
+        # read file
+        with open('disciplines.json', 'r') as json_file:
+            data = json.load(json_file)
+
+        # parse file
+        for first_child in data[0]['children']:
+            discipline_url = dc_network_url + first_child['urlcomponent']
+            TestDiscipline.open_url(self, discipline_url)
+            count = count + 1
+            for second_child in first_child['children']:
+                discipline_url = dc_network_url + first_child['urlcomponent'] + '/' + second_child['urlcomponent']
+                TestDiscipline.open_url(self, discipline_url)
+                count = count + 1
+                for third_child in second_child['children']:
+                    discipline_url = dc_network_url + first_child['urlcomponent'] + '/' + second_child['urlcomponent'] +\
+                                     '/' + third_child['urlcomponent']
+                    TestDiscipline.open_url(self, discipline_url)
+                    count = count + 1
+
+        no_pop_count = len(no_pop_inst) + len(no_pop_author) + len(no_pop_article)
+        bundle_error_count = len(pop_inst_not_updated) + len(pop_author_not_updated) + len(pop_article_not_updated)
+        TestDiscipline.print_report(self, count, bundle_error_count, no_pop_count)
+        assert(bundle_error_count == 0)
+
+    # Function: check_date
+    # Checks the current date and returns true if element included has been updated by UPDATE_DAY
+    def check_date(self, popular_element):
+        # Get current date to check whether the bundle should be updated
+        now = datetime.now()
+        updated_month = now.month - NEW_MONTH  # should be 1 month behind today's month
+        date = datetime(now.year, updated_month, now.day)
+        date_text = date.strftime('%B %Y')
+        if now.day >= UPDATE_DAY:
+            if date_text in popular_element.text:
+                updated = True
+            else:
+                updated = False
+        else:
+            old_month = now.month - OLD_MONTH  # should be 2 months behind today's month
+            date = datetime(now.year, old_month, now.day)
+            old_date_text = date.strftime('%B %Y')
+            updated = False
+            if old_date_text in popular_element.text:
+                updated = True
+            elif date_text in popular_element.text:
+                updated = True
+        return updated
+
+    # Function: open_url
+    # takes discipline url and checks if all 3 bundles exists and whether they are updated
+    def open_url(self, discipline_url):
+        with urllib.request.urlopen(discipline_url) as url:
+            s = url.read()
+        soup = BeautifulSoup(s, "html.parser")
+
+        try:
+            popular_inst = soup.select("div[class='block popular']")[1]
+            if "Based on downloads" not in popular_inst.text:
+                no_pop_inst.append(discipline_url)
+            else:
+                if not TestDiscipline.check_date(self, popular_inst):
+                    pop_inst_not_updated.append(discipline_url)
+        except IndexError:
+            no_pop_inst.append(discipline_url)
+
+        try:
+            popular_authors = soup.select("div[class='block popular']")[2]
+            if "Based on downloads" not in popular_authors.text:
+                no_pop_author.append(discipline_url)
+            else:
+                if not TestDiscipline.check_date(self, popular_authors):
+                    pop_author_not_updated.append(discipline_url)
+        except IndexError:
+            no_pop_author.append(discipline_url)
+
+        try:
+            popular_articles = soup.select("div[class='block popular']")[0]
+            if "Based on downloads" not in popular_articles.text:
+                no_pop_article.append(discipline_url)
+            else:
+                if not TestDiscipline.check_date(self, popular_articles):
+                    pop_article_not_updated.append(discipline_url)
+        except IndexError:
+            no_pop_article.append(discipline_url)
+
+
+    # Function: print_report
+    # opens a text file and writes the discipline url and count for any url that is missing a bundle or
+    # for any bundles that aren't updated
+    def print_report(self, count, bundle_error_count, no_pop_count):
+        with open("disciplines_results.txt", "w+") as f:
+            f.write("Disciplines Checked:" + str(count) + '\n')
+            f.write("Bundle Update Errors:" + str(bundle_error_count) + '\n')
+            f.write("None Listed:" + str(no_pop_count) + '\n\n')
+
+            f.write("Popular Institutions Not Updated: " + str(len(pop_inst_not_updated)))
+            for item in pop_inst_not_updated:
+                f.write("\n\t" + item)
+            f.write("\n\nPopular Authors Not Updated: " + str(len(pop_author_not_updated)))
+            for item in pop_author_not_updated:
+                f.write("\n\t" + item)
+            f.write("\n\nPopular Articles Not Updated: " + str(len(pop_article_not_updated)))
+            for item in pop_article_not_updated:
+                f.write("\n\t" + item)
+            f.write("\n\nNo Listed Popular Institutions: " + str(len(no_pop_inst)))
+            for item in no_pop_inst:
+                f.write("\n\t" + item)
+            f.write("\n\nNo Listed Popular Authors: " + str(len(no_pop_author)))
+            for item in no_pop_author:
+                f.write("\n\t" + item)
+            f.write("\n\nNo Listed Popular Articles: " + str(len(no_pop_article)))
+            for item in no_pop_article:
+                f.write("\n\t" + item)
+
